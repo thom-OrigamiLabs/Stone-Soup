@@ -91,7 +91,7 @@ class PyTorchBoxObjectDetector(_VideoAsyncBoxDetector):
             keep_idx = np.ones(prediction['scores'].size(),dtype=bool)
             
         # Extract results
-        nboxes = prediction["boxes"][keep_idx].cpu().detach().numpy()
+        nboxes = prediction["boxes"][keep_idx].cpu().detach().numpy().clip()
         boxes = nboxes.astype(int)
         classes = prediction['labels'][keep_idx].cpu().detach().numpy()
         scores = prediction['scores'][keep_idx].cpu().detach().numpy()
