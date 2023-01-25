@@ -22,7 +22,7 @@ except ImportError as error:
         "This can be achieved by running "
         "'python -m pip install stonesoup[video]'")\
         from error
-
+import time
 
 from .base import FrameReader
 from .file import FileReader
@@ -197,7 +197,9 @@ class FFmpegVideoStreamReader(UrlReader, FrameReader):
             height = int(self._stream_info['height'])
 
             # Read bytes from stream
+            t0 = time.time()
             in_bytes = self.stream.stdout.read(width * height * 3)
+            print('Frame read:',np.round(time.time()-t0,2))
 
             if in_bytes:
                 # Transform bytes to pixels
@@ -318,6 +320,7 @@ class OpenCVVideoStreamReader(FrameReader):
 
 
     videosource: str = Property(doc="A video file to read")
+    run_async: bool = Property(default=True,doc='Run stream asynchronously')
     buffer_size: int = Property(
         default=1,
         doc="Size of the frame buffer. The frame buffer is used to cache frames in cases where "
@@ -346,7 +349,7 @@ class OpenCVVideoStreamReader(FrameReader):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.input_opts is None:
-            self.input_opts = []
+            self.input_opts = {}
         if self.output_opts is None:
             self.output_opts = {'f': 'rawvideo', 'pix_fmt': 'rgb24', 'colourTransform': cv2.COLOR_BGR2RGB}
         if self.filters is None:
@@ -363,7 +366,11 @@ class OpenCVVideoStreamReader(FrameReader):
         #         if s['codec_type'] == 'video')
 
         # Initialise stream
-        self.stream = FreshestFrame(cv2.VideoCapture(self.videosource, *self.input_opts))
+        if self.run_async:
+            self.stream = FreshestFrame(cv2.VideoCapture(self.videosource, *self.input_opts))
+        else:
+            # Don't use the FreshestFrame buffer for better compatibility
+            self.stream = cv2.VideoCapture(self.videosource, *self.input_opts)
         # for filter_ in self.filters:
         #     filter_name, filter_args, filter_kwargs = filter_
         #     self.stream = self.stream.filter(
@@ -403,7 +410,9 @@ class OpenCVVideoStreamReader(FrameReader):
             #width = int(self._stream_info['width'])
             #height = int(self._stream_info['height'])
 
+            # t0 = time.time()
             ret, frame = self.stream.read()
+            # print('Frame read:',np.round(time.time()-t0,2))
 
             if not ret:
                 break
