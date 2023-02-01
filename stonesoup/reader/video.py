@@ -292,29 +292,14 @@ class FreshestFrame(threading.Thread):
 
 
 class OpenCVVideoStreamReader(FrameReader):
-    """ FFmpegVideoStreamReader
+    """ OpenCVVideoStreamReader
 
-    A threaded reader that uses ffmpeg-python_ to read frames from video
-    streams (e.g. RTSP) in real-time.
+    A threaded reader that uses opencv-python_ to read frames from video
+    streams (e.g. webcam, RTSP) in real-time, or from static video files.
 
 
-    Notes
-    -----
-    - Use of this class requires that FFmpeg_ is installed on the host machine.
-    - By default, FFmpeg performs internal buffering of frames leading to a \
-    slight delay in the incoming frames (0.5-1 sec). To remove the delay it \
-    is recommended to set ``input_opts={'threads': 1, 'fflags': 'nobuffer'}`` \
-    when instantiating a reader, e.g: .
-
-    .. code-block:: python
-
-        video_reader = FFmpegVideoStreamReader('rtsp://192.168.0.10:554/1/h264minor',
-                                               input_opts={'threads': 1, 'fflags': 'nobuffer'})
-        for timestamp, frame in video_reader:
-            ....
-
-    .. _ffmpeg-python: https://github.com/kkroening/ffmpeg-python
-    .. _FFmpeg: https://www.ffmpeg.org/download.html
+    .. opencv-python: https://pypi.org/project/opencv-python/
+    .. opencv: https://opencv.org/
 
     """
 
@@ -357,41 +342,17 @@ class OpenCVVideoStreamReader(FrameReader):
 
         self.buffer = Queue(maxsize=self.buffer_size)
 
-        
-        # else:
-        #     # Probe stream information
-        #     self._stream_info = next(
-        #         s
-        #         for s in ffmpeg.probe(self.url.geturl(), **self.input_opts)['streams']
-        #         if s['codec_type'] == 'video')
-
         # Initialise stream
         if self.run_async:
             self.stream = FreshestFrame(cv2.VideoCapture(self.videosource, *self.input_opts))
         else:
             # Don't use the FreshestFrame buffer for better compatibility
             self.stream = cv2.VideoCapture(self.videosource, *self.input_opts)
-        # for filter_ in self.filters:
-        #     filter_name, filter_args, filter_kwargs = filter_
-        #     self.stream = self.stream.filter(
-        #         filter_name, *filter_args, **filter_kwargs
-        #     )
-        # self.stream = (
-        #     self.stream
-        #     .output('pipe:', **self.output_opts)
-        #     .global_args('-y', '-loglevel', 'panic')
-        #     .run_async(pipe_stdout=True)
-        # )
 
         if self.frame_size is not None:
             self._stream_info = {
                 'width': self.frame_size[0],
                 'height': self.frame_size[1]}
-        #else:
-        #    self._stream_info = {
-        #        'width': self.stream.get(cv2.CAP_PROP_FRAME_WIDTH),
-        #        'height': self.stream.get(cv2.CAP_PROP_FRAME_HEIGHT)}
-
         # Initialise capture thread
         self._capture_thread = threading.Thread(target=self._run)
         self._capture_thread.daemon = True
@@ -407,8 +368,6 @@ class OpenCVVideoStreamReader(FrameReader):
 
     def _run(self):
         while self.stream.isOpened():
-            #width = int(self._stream_info['width'])
-            #height = int(self._stream_info['height'])
 
             # t0 = time.time()
             ret, frame = self.stream.read()
@@ -422,19 +381,6 @@ class OpenCVVideoStreamReader(FrameReader):
                     frame = ImageFrame(frame_np, datetime.datetime.now())
                     self.buffer.put(frame)
 
-            # Read bytes from stream
-            # in_bytes = self.stream.stdout.read(width * height * 3)
-
-            # if in_bytes:
-            #     # Transform bytes to pixels
-            #     frame_np = (
-            #         np.frombuffer(in_bytes, np.uint8)
-            #         .reshape([height, width, 3])
-            #     )
-            #     frame = ImageFrame(frame_np, datetime.datetime.now())
-
-            #     # Write new frame to buffer
-            #     self.buffer.put(frame)
 
     def terminate(self):
         self.stream.release()
