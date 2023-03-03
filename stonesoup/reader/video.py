@@ -282,7 +282,6 @@ class FreshestFrame(threading.Thread):
 
             # block for fresh frame
             (rv, img) = self.capture.read()
-            assert rv
             counter += 1
 
             # publish the frame
@@ -409,9 +408,18 @@ class OpenCVVideoStreamReader(FrameReader):
                 break
             else:
                 if 'colourTransform' in self.output_opts:
-                    frame_np = cv2.cvtColor(frame, self.output_opts['colourTransform'])
-                    frame = ImageFrame(frame_np, datetime.datetime.now())
-                    self.buffer.put(frame)
+                    try:
+                        frame_np = cv2.cvtColor(frame, self.output_opts['colourTransform'])
+                        frame = ImageFrame(frame_np, datetime.datetime.now())
+                        self.buffer.put(frame)
+                        
+                    except:
+                        # if we're out of video, put an empty frame in
+                        # our main thread will catch and kill this
+                        # putting in None causes the detector to fail
+                        # TODO find a more graceful way of doing this
+                        self.buffer.put(ImageFrame(np.zeros((10,10,3),np.uint8), datetime.datetime.now()))
+        
             
             t0 = time.time()
 
