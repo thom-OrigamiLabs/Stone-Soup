@@ -9,19 +9,32 @@ import threading
 from queue import Queue
 from typing import Mapping, Tuple, Sequence, Any, List
 from urllib.parse import ParseResult
+import time
 
 import numpy as np
+missing_packages = []
 try:
     import ffmpeg
-    import moviepy.editor as mpy
+except:
+    
+    missing_packages.append('ffmpeg-python')
+try:
+    import moivepy as mpy
+except:
+    missing_packages.append('moviepy')
+try:
     import cv2
-except ImportError as error:
-    raise ImportError(
-        "Usage of video processing classes requires that the optional"
-        "package dependencies 'moviepy' and 'ffmpeg-python' are installed. "
-        "This can be achieved by running "
-        "'python -m pip install stonesoup[video]'")\
-        from error
+except:
+    missing_packages.append('opencv-python')
+
+if missing_packages:
+    print("Usage of video processing classes requires that the following")
+    print("optional package dependencies are installed: ")
+    for p in missing_packages:
+        print('\t',p)
+    print("This can be achieved by running ")
+    print("'python -m pip install [package]'")
+
 import time
 
 from .base import FrameReader
@@ -217,13 +230,17 @@ class FFmpegVideoStreamReader(UrlReader, FrameReader):
 
 
 class FreshestFrame(threading.Thread):
-    def __init__(self, capture, name='FreshestFrame'):
+    def __init__(self, capture, name='FreshestFrame', force_frame_rate=0):
         self.capture = capture
         assert self.capture.isOpened()
         
 
         # this lets the read() method block until there's a new frame
         self.cond = threading.Condition()
+
+        # this allows us to delay a read which helps for replaying video files
+        # This shouldn't be set above 0 for streams
+        self.force_frame_rate = force_frame_rate
 
         # this allows us to stop the thread gracefully
         self.running = False
@@ -251,11 +268,18 @@ class FreshestFrame(threading.Thread):
         self.capture.release()
         
     def isOpened(self):
-    	return self.capture.isOpened()
+        return self.capture.isOpened()
 
     def run(self):
         counter = 0
+        t0 = time.time()
         while self.running:
+            t1 = time.time()
+            dt = t1 - t0
+            ddt = 1/self.force_frame_rate-dt
+            if ddt > 0:
+                time.sleep(ddt)
+
             # block for fresh frame
             (rv, img) = self.capture.read()
             assert rv
@@ -269,6 +293,8 @@ class FreshestFrame(threading.Thread):
 
             if self.callback:
                 self.callback(img)
+
+            t0 = time.time()
 
     def read(self, wait=True, seqnumber=None, timeout=None):
         # with no arguments (wait=True), it always blocks for a fresh frame
@@ -306,6 +332,7 @@ class OpenCVVideoStreamReader(FrameReader):
 
     videosource: str = Property(doc="A video file to read")
     run_async: bool = Property(default=True,doc='Run stream asynchronously')
+    force_frame_rate: float = Property(default=30.0,doc='Force maximum frame rate')
     buffer_size: int = Property(
         default=1,
         doc="Size of the frame buffer. The frame buffer is used to cache frames in cases where "
@@ -344,7 +371,7 @@ class OpenCVVideoStreamReader(FrameReader):
 
         # Initialise stream
         if self.run_async:
-            self.stream = FreshestFrame(cv2.VideoCapture(self.videosource, *self.input_opts))
+            self.stream = FreshestFrame(cv2.VideoCapture(self.videosource, *self.input_opts),force_frame_rate=self.force_frame_rate)
         else:
             # Don't use the FreshestFrame buffer for better compatibility
             self.stream = cv2.VideoCapture(self.videosource, *self.input_opts)
@@ -367,11 +394,16 @@ class OpenCVVideoStreamReader(FrameReader):
             yield timestamp, frame
 
     def _run(self):
+        t0 = time.time()
         while self.stream.isOpened():
 
-            # t0 = time.time()
+            t1 = time.time()
+            dt = t1 - t0
+            ddt = 1/self.force_frame_rate-dt
+            if ddt > 0:
+                time.sleep(ddt)
+
             ret, frame = self.stream.read()
-            # print('Frame read:',np.round(time.time()-t0,2))
 
             if not ret:
                 break
@@ -380,6 +412,8 @@ class OpenCVVideoStreamReader(FrameReader):
                     frame_np = cv2.cvtColor(frame, self.output_opts['colourTransform'])
                     frame = ImageFrame(frame_np, datetime.datetime.now())
                     self.buffer.put(frame)
+            
+            t0 = time.time()
 
 
     def terminate(self):
